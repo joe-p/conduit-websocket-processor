@@ -74,6 +74,11 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 		return err
 	}
 
+	_, err = ws.Upgrade(conn)
+	if err != nil {
+		return err
+	}
+
 	a.conn = conn
 
 	a.logger.Debug("Websocket processor initialized")
