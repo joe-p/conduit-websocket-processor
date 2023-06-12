@@ -5,6 +5,7 @@ import (
 	_ "embed" // used to embed config
 	"fmt"
 	"net"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -93,6 +94,8 @@ func (a *WebsocketProcessor) Close() error {
 
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
+	start := time.Now()
+
 	a.logger.Debug("Sending block data to websocket")
 	err := wsutil.WriteServerBinary(a.conn, msgpack.Encode(input))
 
@@ -114,7 +117,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
 
-	a.logger.Debug("Websocket response decoded")
+	a.logger.Debugf("Data processed in %s", time.Since(start))
 
 	// Encode BlockData to msgpack and send to websocket
 	// Wait for response
