@@ -1,4 +1,4 @@
-module websocket-processor
+module conduit-websocket-processor
 
 go 1.18
 
