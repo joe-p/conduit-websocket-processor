@@ -12,8 +12,6 @@ import (
 	"github.com/algorand/conduit/conduit/plugins"
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
-	"net/http"
-
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
@@ -61,15 +59,19 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 	a.logger = logger
 	a.ctx = ctx
 
-	// Setup WS server
-	http.ListenAndServe(":8888", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, _, _, err := ws.UpgradeHTTP(r, w)
-		if err != nil {
-			panic(err)
-		}
+	listener, err := net.Listen("tcp", "localhost:8888")
 
-		a.conn = conn
-	}))
+	if err != nil {
+		return err
+	}
+
+	conn, err := listener.Accept()
+
+	if err != nil {
+		return err
+	}
+
+	a.conn = conn
 
 	return nil
 
