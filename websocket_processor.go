@@ -19,11 +19,6 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type Config struct {
-	// <code>omit-group-transactions</code> configures the filter processor to return the matched transaction without its grouped transactions.
-	IncludeGroupTransactions bool `yaml:"omit-group-transactions"`
-}
-
 // PluginName to use when configuring.
 const PluginName = "websocket_processor"
 
@@ -56,7 +51,7 @@ func (a *WebsocketProcessor) Config() string {
 }
 
 // Init initializes the filter processor
-func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg plugins.PluginConfig, logger *log.Logger) error {
+func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, _ plugins.PluginConfig, logger *log.Logger) error {
 	a.logger = logger
 	a.ctx = ctx
 	a.logger.Debug("Initializing websocket processor")
