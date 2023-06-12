@@ -1,13 +1,13 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
 import WebSocket from 'websocket';
-// eslint-disable-next-line import/no-extraneous-dependencies
-import algosdk from 'algosdk';
+import { decode } from '@msgpack/msgpack';
 
 // eslint-disable-next-line new-cap
 const client = new WebSocket.client();
 
 function processData(connection: WebSocket.connection, data: Buffer) {
-  console.log('Decoded data:', algosdk.decodeObj(data));
+  const signedTxns = decode(data) as any
+
+  console.log('decoded signedTxns', signedTxns)
   connection.sendBytes(data);
 }
 
