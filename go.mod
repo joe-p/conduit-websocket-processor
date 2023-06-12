@@ -1,4 +1,4 @@
-module conduit-websocket-processor
+module github.com/joe-p/conduit-websocket-processor
 
 go 1.18
 
