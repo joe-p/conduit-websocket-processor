@@ -125,7 +125,5 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Debugf("Data processed in %s", time.Since(start))
 
-	// Encode BlockData to msgpack and send to websocket
-	// Wait for response
 	return input, err
 }
