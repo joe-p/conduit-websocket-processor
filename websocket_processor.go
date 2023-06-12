@@ -56,15 +56,19 @@ func (a *WebsocketProcessor) Config() string {
 
 // Init initializes the filter processor
 func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg plugins.PluginConfig, logger *log.Logger) error {
+	a.logger.Debug("Initializing websocket processor")
+
 	a.logger = logger
 	a.ctx = ctx
 
+	a.logger.Debug("Listening on localhost:8888")
 	listener, err := net.Listen("tcp", "localhost:8888")
 
 	if err != nil {
 		return err
 	}
 
+	a.logger.Debug("Accepting connections on localhost:8888")
 	conn, err := listener.Accept()
 
 	if err != nil {
@@ -73,6 +77,7 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 
 	a.conn = conn
 
+	a.logger.Debug("Websocket processor initialized")
 	return nil
 
 }
