@@ -16,7 +16,7 @@ import (
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 
-	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 type Config struct {
@@ -96,8 +96,14 @@ func (a *WebsocketProcessor) Close() error {
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	start := time.Now()
 
+	encodedInput, err := msgpack.Marshal(input)
+
+	if err != nil {
+		return input, err
+	}
+
 	a.logger.Debug("Sending block data to websocket")
-	err := wsutil.WriteServerBinary(a.conn, msgpack.Encode(input))
+	err = wsutil.WriteServerBinary(a.conn, encodedInput)
 
 	if err != nil {
 		return input, err
@@ -112,7 +118,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Debug("Decoded response from websocket")
 	if op == ws.OpBinary {
-		err = msgpack.Decode(data, &input)
+		err = msgpack.Unmarshal(data, &input)
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
