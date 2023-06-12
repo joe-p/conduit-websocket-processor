@@ -96,14 +96,14 @@ func (a *WebsocketProcessor) Close() error {
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	start := time.Now()
 
-	encodedInput, err := msgpack.Marshal(input)
+	encodedPayset, err := msgpack.Marshal(input.Payset)
 
 	if err != nil {
 		return input, err
 	}
 
 	a.logger.Debug("Sending block data to websocket")
-	err = wsutil.WriteServerBinary(a.conn, encodedInput)
+	err = wsutil.WriteServerBinary(a.conn, encodedPayset)
 
 	if err != nil {
 		return input, err
@@ -118,7 +118,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Debug("Decoded response from websocket")
 	if op == ws.OpBinary {
-		err = msgpack.Unmarshal(data, &input)
+		err = msgpack.Unmarshal(data, &input.Payset)
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
