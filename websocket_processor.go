@@ -14,6 +14,7 @@ import (
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
 	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
+	"github.com/algorand/go-algorand-sdk/v2/types"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
@@ -107,7 +108,14 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Debug("Decoding response from websocket")
 	if op == ws.OpBinary {
-		err = msgpack.Decode(data, &input.Payset)
+		var processedPayset []types.SignedTxnInBlock
+		err = msgpack.Decode(data, &processedPayset)
+
+		if err != nil {
+			return input, nil
+		}
+
+		input.Payset = processedPayset
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
