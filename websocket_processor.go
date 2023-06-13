@@ -127,7 +127,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		savedLocalDeltas[txID] = input.Payset[i].EvalDelta.LocalDeltas
 		input.Payset[i].EvalDelta.LocalDeltas = nil
 
-		removeInnerLocalDeltas(&txn.EvalDelta.InnerTxns, savedLocalDeltas)
+		removeInnerLocalDeltas(&input.Payset[i].EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
