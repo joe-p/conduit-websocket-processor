@@ -93,6 +93,8 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	// https://github.com/algorand/go-codec/pull/4
 	stateProofTracking := input.BlockHeader.StateProofTracking
 	input.BlockHeader.StateProofTracking = nil
+	deltaStateProofTracking := input.Delta.Hdr.StateProofTracking
+	input.Delta.Hdr.StateProofTracking = nil
 
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
@@ -129,5 +131,6 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Infof("Data processed in %s", time.Since(start))
 
 	input.BlockHeader.StateProofTracking = stateProofTracking
+	input.Delta.Hdr.StateProofTracking = deltaStateProofTracking
 	return input, err
 }
