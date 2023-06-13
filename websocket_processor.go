@@ -97,7 +97,7 @@ func removeInnerLocalDeltas(txns []types.SignedTxnWithAD, savedLocalDeltas map[s
 		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
 		txn.ApplyData.EvalDelta.LocalDeltas = nil
 
-		removeInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
+		removeInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 }
 
@@ -169,7 +169,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txID := crypto.GetTxID(txn.Txn)
 
 		txn.ApplyData.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
-		restoreInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
+		restoreInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
