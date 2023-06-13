@@ -105,7 +105,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		return input, err
 	}
 
-	a.logger.Debug("Decoded response from websocket")
+	a.logger.Debug("Decoding response from websocket")
 	if op == ws.OpBinary {
 		err = msgpack.Decode(data, &input.Payset)
 	} else {
