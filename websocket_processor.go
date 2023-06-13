@@ -14,7 +14,7 @@ import (
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
 	"github.com/algorand/go-algorand-sdk/v2/crypto"
-	"github.com/algorand/go-algorand-sdk/v2/encoding/json"
+	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
 	"github.com/algorand/go-algorand-sdk/v2/types"
 
 	"github.com/gobwas/ws"
@@ -137,10 +137,10 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
-	encodedInput := json.Encode(input)
+	encodedInput := msgpack.Encode(input)
 
 	a.logger.Debugf("Sending block data to websocket (size: %dkb)", len(encodedInput)/1000)
-	err := wsutil.WriteServerText(a.conn, encodedInput)
+	err := wsutil.WriteServerBinary(a.conn, encodedInput)
 
 	if err != nil {
 		return input, err
@@ -156,8 +156,8 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Debug("Decoding response from websocket")
 	var processedInput data.BlockData
 
-	if op == ws.OpText {
-		err = json.Decode(encodedResponse, &processedInput)
+	if op == ws.OpBinary {
+		err = msgpack.Decode(encodedResponse, &processedInput)
 
 		if err != nil {
 			return input, nil
