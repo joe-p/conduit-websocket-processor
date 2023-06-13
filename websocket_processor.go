@@ -13,10 +13,9 @@ import (
 	"github.com/algorand/conduit/conduit/plugins"
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
+	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
-
-	"github.com/vmihailenco/msgpack/v5"
 )
 
 // PluginName to use when configuring.
@@ -90,15 +89,10 @@ func (a *WebsocketProcessor) Close() error {
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	start := time.Now()
-
-	encodedPayset, err := msgpack.Marshal(input.Payset)
-
-	if err != nil {
-		return input, err
-	}
+	encodedPayset := msgpack.Encode(input.Payset)
 
 	a.logger.Debug("Sending block data to websocket")
-	err = wsutil.WriteServerBinary(a.conn, encodedPayset)
+	err := wsutil.WriteServerBinary(a.conn, encodedPayset)
 
 	if err != nil {
 		return input, err
@@ -113,7 +107,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Debug("Decoded response from websocket")
 	if op == ws.OpBinary {
-		err = msgpack.Unmarshal(data, &input.Payset)
+		err = msgpack.Decode(data, &input.Payset)
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
