@@ -129,6 +129,12 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 		removeInnerLocalDeltas(&input.Payset[i].EvalDelta.InnerTxns, savedLocalDeltas)
 	}
+
+	savedLeases := input.Delta.Txleases
+	input.Delta.Txleases = nil
+	savedCreateables := input.Delta.Creatables
+	input.Delta.Creatables = nil
+
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
 	encodedInput := json.Encode(input)
@@ -171,5 +177,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
+	processedInput.Delta.Creatables = savedCreateables
+	processedInput.Delta.Txleases = savedLeases
 	return processedInput, err
 }
