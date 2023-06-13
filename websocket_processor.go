@@ -122,11 +122,10 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	savedLocalDeltas := map[string]map[uint64]types.StateDelta{}
 	for i := 0; i < len(input.Payset); i++ {
-		txn := input.Payset[i]
-		txID := crypto.GetTxID(txn.Txn)
+		txID := crypto.GetTxID(input.Payset[i].Txn)
 
-		savedLocalDeltas[txID] = txn.EvalDelta.LocalDeltas
-		txn.EvalDelta.LocalDeltas = nil
+		savedLocalDeltas[txID] = input.Payset[i].EvalDelta.LocalDeltas
+		input.Payset[i].EvalDelta.LocalDeltas = nil
 
 		removeInnerLocalDeltas(&txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
