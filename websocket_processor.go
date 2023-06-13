@@ -13,7 +13,10 @@ import (
 	"github.com/algorand/conduit/conduit/plugins"
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
+	"github.com/algorand/go-algorand-sdk/v2/crypto"
 	"github.com/algorand/go-algorand-sdk/v2/encoding/json"
+	"github.com/algorand/go-algorand-sdk/v2/types"
+
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
@@ -88,13 +91,22 @@ func (a *WebsocketProcessor) Close() error {
 
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
-	// Don't encode the spt because it's encoding is currently broken
+	// Don't encode the spt and local deltas because their encoding is currently broken
 	// Should be fixed when the following PR is merged and availible in sdk and conduit
 	// https://github.com/algorand/go-codec/pull/4
 	stateProofTracking := input.BlockHeader.StateProofTracking
 	input.BlockHeader.StateProofTracking = nil
 	deltaStateProofTracking := input.Delta.Hdr.StateProofTracking
 	input.Delta.Hdr.StateProofTracking = nil
+
+	localDeltas := map[string]map[uint64]types.StateDelta{}
+	for i := 0; i < len(input.Payset); i++ {
+		txn := input.Payset[i]
+		txID := crypto.GetTxID(txn.Txn)
+
+		localDeltas[txID] = txn.EvalDelta.LocalDeltas
+		txn.EvalDelta.LocalDeltas = nil
+	}
 
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
@@ -129,6 +141,13 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Infof("Data processed in %s", time.Since(start))
 
+	// Restore all of the stuff we removed earlier for encoding purposes
+	for i := 0; i < len(processedInput.Payset); i++ {
+		txn := processedInput.Payset[i]
+		txID := crypto.GetTxID(txn.Txn)
+
+		txn.EvalDelta.LocalDeltas = localDeltas[txID]
+	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
 	return processedInput, err
