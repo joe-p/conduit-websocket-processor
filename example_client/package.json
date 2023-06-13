@@ -4,7 +4,6 @@
   "main": "index.js",
   "license": "MIT",
   "dependencies": {
-    "@msgpack/msgpack": "^3.0.0-beta2",
     "algosdk": "^2.3.0",
     "websocket": "^1.0.34"
   },

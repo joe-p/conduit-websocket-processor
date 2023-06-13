@@ -13,8 +13,7 @@ import (
 	"github.com/algorand/conduit/conduit/plugins"
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
-	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
-	"github.com/algorand/go-algorand-sdk/v2/types"
+	"github.com/algorand/go-algorand-sdk/v2/encoding/json"
 	"github.com/gobwas/ws"
 	"github.com/gobwas/ws/wsutil"
 )
@@ -90,32 +89,33 @@ func (a *WebsocketProcessor) Close() error {
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	start := time.Now()
-	encodedPayset := msgpack.Encode(input.Payset)
+	a.logger.Debug("Encoding block data")
+	encodedInput := json.Encode(input)
 
 	a.logger.Debug("Sending block data to websocket")
-	err := wsutil.WriteServerBinary(a.conn, encodedPayset)
+	err := wsutil.WriteServerText(a.conn, encodedInput)
 
 	if err != nil {
 		return input, err
 	}
 
 	a.logger.Debug("Waiting for response from websocket")
-	data, op, err := wsutil.ReadClientData(a.conn)
+	encodedResponse, op, err := wsutil.ReadClientData(a.conn)
 
 	if err != nil {
 		return input, err
 	}
 
 	a.logger.Debug("Decoding response from websocket")
-	if op == ws.OpBinary {
-		var processedPayset []types.SignedTxnInBlock
-		err = msgpack.Decode(data, &processedPayset)
+	if op == ws.OpText {
+		var processedInput data.BlockData
+		err = json.Decode(encodedResponse, &processedInput)
 
 		if err != nil {
 			return input, nil
 		}
 
-		input.Payset = processedPayset
+		input = processedInput
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}

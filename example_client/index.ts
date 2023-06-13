@@ -1,22 +1,10 @@
 import WebSocket from 'websocket';
-import { decode, encode } from '@msgpack/msgpack';
-import algosdk from 'algosdk';
-
 // eslint-disable-next-line new-cap
 const client = new WebSocket.client();
 
-function processData(connection: WebSocket.connection, data: Buffer) {
-  const signedTxns = decode(data) as any[];
-
-  signedTxns.forEach((stxn) => {
-    // gh isn't set on transactions so we must manually set it to avoid an error being thrown by decodeSignedTransaction
-    stxn.txn.gh = '';
-
-    // encode the stxn as msgpack, then decode with decodeSignedTransaction to get SDK object
-    const decodedStxn = algosdk.decodeSignedTransaction(encode(stxn));
-    console.log(Buffer.from(decodedStxn.txn.note!).toString());
-  });
-  connection.sendBytes(data);
+function processData(connection: WebSocket.connection, block: any) {
+  console.log(block)
+  connection.sendUTF(JSON.stringify(block));
 }
 
 client.on('connectFailed', (error) => {
@@ -35,8 +23,8 @@ client.on('connect', (connection) => {
   });
 
   connection.on('message', (message) => {
-    if (message.type === 'binary') {
-      processData(connection, message.binaryData);
+    if (message.type === 'utf8') {
+      processData(connection, JSON.parse(message.utf8Data));
     }
   });
 });
