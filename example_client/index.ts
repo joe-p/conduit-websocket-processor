@@ -1,13 +1,21 @@
 import WebSocket from 'websocket';
-import { decode } from '@msgpack/msgpack';
+import { decode, encode } from '@msgpack/msgpack';
+import algosdk from 'algosdk';
 
 // eslint-disable-next-line new-cap
 const client = new WebSocket.client();
 
 function processData(connection: WebSocket.connection, data: Buffer) {
-  const signedTxns = decode(data) as any
+  const signedTxns = decode(data) as any[];
 
-  console.log('decoded signedTxns', signedTxns)
+  signedTxns.forEach((stxn) => {
+    // gh isn't set on transactions so we must manually set it to avoid an error being thrown by decodeSignedTransaction
+    stxn.txn.gh = '';
+
+    // encode the stxn as msgpack, then decode with decodeSignedTransaction to get SDK object
+    const decodedStxn = algosdk.decodeSignedTransaction(encode(stxn));
+    console.log(Buffer.from(decodedStxn.txn.note!).toString());
+  });
   connection.sendBytes(data);
 }
 
