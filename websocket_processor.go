@@ -120,7 +120,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
 
-	a.logger.Debugf("Data processed in %s", time.Since(start))
+	a.logger.Infof("Data processed in %s", time.Since(start))
 
 	return input, err
 }
