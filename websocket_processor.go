@@ -88,6 +88,12 @@ func (a *WebsocketProcessor) Close() error {
 
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
+	// Don't encode the spt because it's encoding is currently broken
+	// Should be fixed when the following PR is merged and availible in sdk and conduit
+	// https://github.com/algorand/go-codec/pull/4
+	stateProofTracking := input.BlockHeader.StateProofTracking
+	input.BlockHeader.StateProofTracking = nil
+
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
 	encodedInput := json.Encode(input)
@@ -122,5 +128,6 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	a.logger.Infof("Data processed in %s", time.Since(start))
 
+	input.BlockHeader.StateProofTracking = stateProofTracking
 	return input, err
 }
