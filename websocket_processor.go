@@ -94,8 +94,8 @@ func removeInnerLocalDeltas(txns []types.SignedTxnWithAD, savedLocalDeltas map[s
 		txn := txns[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
-		txn.ApplyData.EvalDelta.LocalDeltas = nil
+		savedLocalDeltas[txID] = txn.EvalDelta.LocalDeltas
+		txn.EvalDelta.LocalDeltas = nil
 
 		removeInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
@@ -106,7 +106,7 @@ func restoreInnerLocalDeltas(txns []types.SignedTxnWithAD, savedLocalDeltas map[
 		txn := txns[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		txn.ApplyData.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
+		txn.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
 	}
 }
 
@@ -128,7 +128,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
 		txn.ApplyData.EvalDelta.LocalDeltas = nil
 
-		removeInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
+		removeInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
