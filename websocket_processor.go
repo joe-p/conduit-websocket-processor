@@ -89,6 +89,27 @@ func (a *WebsocketProcessor) Close() error {
 	return nil
 }
 
+func removeInnerLocalDeltas(txns []types.SignedTxnWithAD, savedLocalDeltas map[string]map[uint64]types.StateDelta) {
+	for i := 0; i < len(txns); i++ {
+		txn := txns[i]
+		txID := crypto.GetTxID(txn.Txn)
+
+		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
+		txn.ApplyData.EvalDelta.LocalDeltas = nil
+
+		removeInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
+	}
+}
+
+func restoreInnerLocalDeltas(txns []types.SignedTxnWithAD, savedLocalDeltas map[string]map[uint64]types.StateDelta) {
+	for i := 0; i < len(txns); i++ {
+		txn := txns[i]
+		txID := crypto.GetTxID(txn.Txn)
+
+		txn.ApplyData.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
+	}
+}
+
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	// Don't encode the spt and local deltas because their encoding is currently broken
@@ -99,15 +120,16 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	deltaStateProofTracking := input.Delta.Hdr.StateProofTracking
 	input.Delta.Hdr.StateProofTracking = nil
 
-	localDeltas := map[string]map[uint64]types.StateDelta{}
+	savedLocalDeltas := map[string]map[uint64]types.StateDelta{}
 	for i := 0; i < len(input.Payset); i++ {
 		txn := input.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		localDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
+		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
 		txn.ApplyData.EvalDelta.LocalDeltas = nil
-	}
 
+		removeInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
+	}
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
 	encodedInput := json.Encode(input)
@@ -146,7 +168,8 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txn := processedInput.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		txn.ApplyData.EvalDelta.LocalDeltas = localDeltas[txID]
+		txn.ApplyData.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
+		restoreInnerLocalDeltas(txn.ApplyData.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
