@@ -92,7 +92,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Debug("Encoding block data")
 	encodedInput := json.Encode(input)
 
-	a.logger.Debug("Sending block data to websocket")
+	a.logger.Debugf("Sending block data to websocket (size: %dkb)", len(encodedInput)/1000)
 	err := wsutil.WriteServerText(a.conn, encodedInput)
 
 	if err != nil {
