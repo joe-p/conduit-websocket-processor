@@ -104,8 +104,8 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txn := input.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		localDeltas[txID] = txn.EvalDelta.LocalDeltas
-		txn.EvalDelta.LocalDeltas = nil
+		localDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
+		txn.ApplyData.EvalDelta.LocalDeltas = nil
 	}
 
 	start := time.Now()
@@ -146,7 +146,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txn := processedInput.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		txn.EvalDelta.LocalDeltas = localDeltas[txID]
+		txn.ApplyData.EvalDelta.LocalDeltas = localDeltas[txID]
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
