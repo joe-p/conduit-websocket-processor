@@ -164,11 +164,10 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 
 	// Restore all of the stuff we removed earlier for encoding purposes
 	for i := 0; i < len(processedInput.Payset); i++ {
-		txn := processedInput.Payset[i]
-		txID := crypto.GetTxID(txn.Txn)
+		txID := crypto.GetTxID(processedInput.Payset[i].Txn)
 
-		txn.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
-		restoreInnerLocalDeltas(&txn.EvalDelta.InnerTxns, savedLocalDeltas)
+		processedInput.Payset[i].EvalDelta.LocalDeltas = savedLocalDeltas[txID]
+		restoreInnerLocalDeltas(&processedInput.Payset[i].EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
 	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
