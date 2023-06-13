@@ -115,22 +115,21 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	}
 
 	a.logger.Debug("Decoding response from websocket")
+	var processedInput data.BlockData
+
 	if op == ws.OpText {
-		var processedInput data.BlockData
 		err = json.Decode(encodedResponse, &processedInput)
 
 		if err != nil {
 			return input, nil
 		}
-
-		input = processedInput
 	} else {
 		return input, fmt.Errorf("unexpected op: %d", op)
 	}
 
 	a.logger.Infof("Data processed in %s", time.Since(start))
 
-	input.BlockHeader.StateProofTracking = stateProofTracking
-	input.Delta.Hdr.StateProofTracking = deltaStateProofTracking
-	return input, err
+	processedInput.BlockHeader.StateProofTracking = stateProofTracking
+	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
+	return processedInput, err
 }
