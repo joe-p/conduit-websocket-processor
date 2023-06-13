@@ -125,8 +125,8 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txn := input.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		savedLocalDeltas[txID] = txn.ApplyData.EvalDelta.LocalDeltas
-		txn.ApplyData.EvalDelta.LocalDeltas = nil
+		savedLocalDeltas[txID] = txn.EvalDelta.LocalDeltas
+		txn.EvalDelta.LocalDeltas = nil
 
 		removeInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
@@ -168,7 +168,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		txn := processedInput.Payset[i]
 		txID := crypto.GetTxID(txn.Txn)
 
-		txn.ApplyData.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
+		txn.EvalDelta.LocalDeltas = savedLocalDeltas[txID]
 		restoreInnerLocalDeltas(txn.EvalDelta.InnerTxns, savedLocalDeltas)
 	}
 	processedInput.BlockHeader.StateProofTracking = stateProofTracking
