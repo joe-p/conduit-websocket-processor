@@ -1,10 +1,20 @@
 import WebSocket from 'websocket';
+import { pack, unpack } from 'msgpackr';
+import algosdk from 'algosdk';
 // eslint-disable-next-line new-cap
 const client = new WebSocket.client();
 
 function processData(connection: WebSocket.connection, block: any) {
-  console.log(block)
-  connection.sendUTF(JSON.stringify(block));
+  block.payset = (block.payset as any[]).filter((t: any) => {
+    // decodeSignedTransaction will complain if gh is not set
+    t.txn.gh = block.block.gh;
+    const sTxn = algosdk.decodeSignedTransaction(pack(t));
+    const noteStr = Buffer.from(sTxn.txn.note!).toString();
+    console.log(noteStr);
+
+    return noteStr.length > 0;
+  });
+  connection.sendBytes(pack(block));
 }
 
 client.on('connectFailed', (error) => {
@@ -23,8 +33,8 @@ client.on('connect', (connection) => {
   });
 
   connection.on('message', (message) => {
-    if (message.type === 'utf8') {
-      processData(connection, JSON.parse(message.utf8Data));
+    if (message.type === 'binary') {
+      processData(connection, unpack(message.binaryData));
     }
   });
 });

@@ -5,6 +5,7 @@
   "license": "MIT",
   "dependencies": {
     "algosdk": "^2.3.0",
+    "msgpackr": "^1.9.5",
     "websocket": "^1.0.34"
   },
   "devDependencies": {
