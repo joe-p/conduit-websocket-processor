@@ -21,6 +21,14 @@ import (
 	"github.com/gobwas/ws/wsutil"
 )
 
+type SavedMaps struct {
+	LocalDeltas map[string]map[uint64]types.StateDelta
+	Leases      map[types.Txlease]types.Round
+	Createables map[types.CreatableIndex]types.ModifiedCreatable
+	Spt         map[types.StateProofType]types.StateProofTrackingData
+	DeltaSpt    map[types.StateProofType]types.StateProofTrackingData
+}
+
 // PluginName to use when configuring.
 const PluginName = "websocket_processor"
 
@@ -112,28 +120,30 @@ func restoreInnerLocalDeltas(txns *[]types.SignedTxnWithAD, savedLocalDeltas map
 
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
-	// Don't encode the spt and local deltas because their encoding is currently broken
+	// Don't encode the following maps because their encoding is currently broken
 	// Should be fixed when the following PR is merged and availible in sdk and conduit
 	// https://github.com/algorand/go-codec/pull/4
-	stateProofTracking := input.BlockHeader.StateProofTracking
-	input.BlockHeader.StateProofTracking = nil
-	deltaStateProofTracking := input.Delta.Hdr.StateProofTracking
-	input.Delta.Hdr.StateProofTracking = nil
+	savedMaps := SavedMaps{
+		Spt:         input.BlockHeader.StateProofTracking,
+		DeltaSpt:    input.Delta.Hdr.StateProofTracking,
+		Leases:      input.Delta.Txleases,
+		Createables: input.Delta.Creatables,
+	}
 
-	savedLocalDeltas := map[string]map[uint64]types.StateDelta{}
+	input.BlockHeader.StateProofTracking = nil
+	input.Delta.Hdr.StateProofTracking = nil
+	input.Delta.Txleases = nil
+	input.Delta.Creatables = nil
+
+	savedMaps.LocalDeltas = map[string]map[uint64]types.StateDelta{}
 	for i := 0; i < len(input.Payset); i++ {
 		txID := crypto.GetTxID(input.Payset[i].Txn)
 
-		savedLocalDeltas[txID] = input.Payset[i].EvalDelta.LocalDeltas
+		savedMaps.LocalDeltas[txID] = input.Payset[i].EvalDelta.LocalDeltas
 		input.Payset[i].EvalDelta.LocalDeltas = nil
 
-		removeInnerLocalDeltas(&input.Payset[i].EvalDelta.InnerTxns, savedLocalDeltas)
+		removeInnerLocalDeltas(&input.Payset[i].EvalDelta.InnerTxns, savedMaps.LocalDeltas)
 	}
-
-	savedLeases := input.Delta.Txleases
-	input.Delta.Txleases = nil
-	savedCreateables := input.Delta.Creatables
-	input.Delta.Creatables = nil
 
 	start := time.Now()
 	a.logger.Debug("Encoding block data")
@@ -172,12 +182,12 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	for i := 0; i < len(processedInput.Payset); i++ {
 		txID := crypto.GetTxID(processedInput.Payset[i].Txn)
 
-		processedInput.Payset[i].EvalDelta.LocalDeltas = savedLocalDeltas[txID]
-		restoreInnerLocalDeltas(&processedInput.Payset[i].EvalDelta.InnerTxns, savedLocalDeltas)
+		processedInput.Payset[i].EvalDelta.LocalDeltas = savedMaps.LocalDeltas[txID]
+		restoreInnerLocalDeltas(&processedInput.Payset[i].EvalDelta.InnerTxns, savedMaps.LocalDeltas)
 	}
-	processedInput.BlockHeader.StateProofTracking = stateProofTracking
-	processedInput.Delta.Hdr.StateProofTracking = deltaStateProofTracking
-	processedInput.Delta.Creatables = savedCreateables
-	processedInput.Delta.Txleases = savedLeases
+	processedInput.BlockHeader.StateProofTracking = savedMaps.Spt
+	processedInput.Delta.Hdr.StateProofTracking = savedMaps.DeltaSpt
+	processedInput.Delta.Creatables = savedMaps.Createables
+	processedInput.Delta.Txleases = savedMaps.Leases
 	return processedInput, err
 }
