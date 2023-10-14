@@ -39,7 +39,7 @@ type WebsocketProcessor struct {
 func (a *WebsocketProcessor) Metadata() plugins.Metadata {
 	return plugins.Metadata{
 		Name:         PluginName,
-		Description:  "Filter transactions out via a lua script.",
+		Description:  "Pass block data to a websocket server and receive back the processed data",
 		Deprecated:   false,
 		SampleConfig: "",
 	}
