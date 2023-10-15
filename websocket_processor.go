@@ -3,8 +3,7 @@ package websocket_processor
 import (
 	"context"
 	_ "embed" // used to embed config
-	"fmt"
-	"net"
+	"net/http"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -15,8 +14,10 @@ import (
 
 	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
 
-	"github.com/gobwas/ws"
-	"github.com/gobwas/ws/wsutil"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/google/uuid"
+	"github.com/lesismal/nbio/nbhttp/websocket"
 )
 
 // PluginName to use when configuring.
@@ -30,16 +31,16 @@ func init() {
 }
 
 type WebsocketProcessor struct {
-	logger *log.Logger
-	ctx    context.Context
-	conn   net.Conn
+	logger      *log.Logger
+	ctx         context.Context
+	connections map[uuid.UUID]*websocket.Conn
 }
 
 // Metadata returns metadata
 func (a *WebsocketProcessor) Metadata() plugins.Metadata {
 	return plugins.Metadata{
 		Name:         PluginName,
-		Description:  "Pass block data to a websocket server and receive back the processed data",
+		Description:  "Pass block data any number of websocket connections",
 		Deprecated:   false,
 		SampleConfig: "",
 	}
@@ -50,77 +51,79 @@ func (a *WebsocketProcessor) Config() string {
 	return ""
 }
 
+func (a *WebsocketProcessor) Serve() {
+	r := chi.NewRouter()
+
+	r.Use(middleware.Logger)
+
+	r.Get("/read", func(w http.ResponseWriter, r *http.Request) {
+		u := websocket.NewUpgrader()
+		u.CheckOrigin = func(r *http.Request) bool { return true }
+
+		id := uuid.New()
+		a.logger.Debug(id.String() + " connected")
+
+		u.OnClose(func(c *websocket.Conn, err error) {
+			delete(a.connections, id)
+		})
+
+		conn, err := u.Upgrade(w, r, nil)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		conn.SetReadDeadline(time.Time{})
+
+		a.connections[id] = conn
+	})
+
+	http.ListenAndServe("localhost:8888", r)
+}
+
 // Init initializes the filter processor
 func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, _ plugins.PluginConfig, logger *log.Logger) error {
 	a.logger = logger
 	a.ctx = ctx
 	a.logger.Debug("Initializing websocket processor")
 
-	a.logger.Debug("Listening on localhost:8888")
-	listener, err := net.Listen("tcp", "localhost:8888")
+	a.connections = map[uuid.UUID]*websocket.Conn{}
 
-	if err != nil {
-		return err
-	}
-
-	a.logger.Debug("Accepting connections on localhost:8888")
-	conn, err := listener.Accept()
-
-	if err != nil {
-		return err
-	}
-
-	_, err = ws.Upgrade(conn)
-	if err != nil {
-		return err
-	}
-
-	a.conn = conn
-
-	a.logger.Debug("Websocket processor initialized")
+	go a.Serve()
 	return nil
-
 }
 
 func (a *WebsocketProcessor) Close() error {
-	a.conn.Close()
+	for _, conn := range a.connections {
+		conn.Close()
+	}
+
 	return nil
 }
 
 // Process processes the input data
 func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, error) {
 	start := time.Now()
+
 	a.logger.Debug("Encoding block data")
 	encodedInput := msgpack.Encode(input)
 
-	a.logger.Debugf("Sending block data to websocket (size: %dkb)", len(encodedInput)/1000)
-	err := wsutil.WriteServerBinary(a.conn, encodedInput)
+	a.logger.Debugf("Sending block data to read all %d clients (size: %dkb)", len(a.connections), len(encodedInput)/1000)
+	for id, conn := range a.connections {
+		a.logger.Debug("Sending to " + id.String())
 
-	if err != nil {
-		return input, err
+		go func(conn *websocket.Conn) {
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			err := conn.WriteMessage(websocket.BinaryMessage, encodedInput)
+
+			if err != nil {
+				conn.Close()
+			}
+		}(conn)
 	}
 
-	a.logger.Debug("Waiting for response from websocket")
-	encodedResponse, op, err := wsutil.ReadClientData(a.conn)
+	a.logger.Infof("done in %s", time.Since(start))
 
-	if err != nil {
-		return input, err
-	}
-
-	a.logger.Debug("Decoding response from websocket")
-	var output data.BlockData
-
-	if op == ws.OpBinary {
-		err = msgpack.Decode(encodedResponse, &output)
-
-		if err != nil {
-			return input, nil
-		}
-	} else {
-		return input, fmt.Errorf("unexpected op: %d", op)
-	}
-
-	a.logger.Infof("Data processed in %s", time.Since(start))
-
-	return output, err
+	return input, nil
 }

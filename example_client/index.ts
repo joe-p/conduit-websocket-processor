@@ -5,7 +5,7 @@ import algosdk from 'algosdk';
 const client = new WebSocket.client();
 
 function processData(connection: WebSocket.connection, block: any) {
-  block.payset = (block.payset as any[]).filter((t: any) => {
+  block.payset = (block.payset as any[])?.filter((t: any) => {
     // decodeSignedTransaction will complain if gh is not set
     t.txn.gh = block.block.gh;
     const sTxn = algosdk.decodeSignedTransaction(pack(t));
@@ -39,4 +39,4 @@ client.on('connect', (connection) => {
   });
 });
 
-client.connect('ws://localhost:8888/');
+client.connect('ws://localhost:8888/read');
