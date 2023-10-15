@@ -3,6 +3,7 @@ package websocket_processor
 import (
 	"context"
 	_ "embed" // used to embed config
+	"fmt"
 	"net/http"
 	"time"
 
@@ -30,12 +31,20 @@ func init() {
 	}))
 }
 
+type ExporterConfig struct {
+	EnableFilter bool   `yaml: enable-filter`
+	EnableRead   bool   `yaml: enable-read`
+	Host         string `yaml: host`
+	Port         int    `yaml: port`
+}
+
 type WebsocketProcessor struct {
 	logger          *log.Logger
 	ctx             context.Context
 	connections     map[uuid.UUID]*websocket.Conn
 	filterConn      *websocket.Conn
 	responseChannel chan data.BlockData
+	cfg             ExporterConfig
 }
 
 // Metadata returns metadata
@@ -48,83 +57,103 @@ func (a *WebsocketProcessor) Metadata() plugins.Metadata {
 	}
 }
 
-// Config returns the config
-func (a *WebsocketProcessor) Config() string {
-	return ""
-}
-
-func (a *WebsocketProcessor) Serve() {
+func (a *WebsocketProcessor) serve() {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 
-	r.Get("/read", func(w http.ResponseWriter, r *http.Request) {
-		u := websocket.NewUpgrader()
-		u.CheckOrigin = func(r *http.Request) bool { return true }
+	if a.cfg.EnableRead {
+		r.Get("/read", func(w http.ResponseWriter, r *http.Request) {
+			u := websocket.NewUpgrader()
+			u.CheckOrigin = func(r *http.Request) bool { return true }
 
-		id := uuid.New()
-		a.logger.Debug(id.String() + " connected")
+			id := uuid.New()
+			a.logger.Debug(id.String() + " connected")
 
-		u.OnClose(func(c *websocket.Conn, err error) {
-			delete(a.connections, id)
-		})
+			u.OnClose(func(c *websocket.Conn, err error) {
+				delete(a.connections, id)
+			})
 
-		conn, err := u.Upgrade(w, r, nil)
+			conn, err := u.Upgrade(w, r, nil)
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		conn.SetReadDeadline(time.Time{})
-
-		a.connections[id] = conn
-	})
-
-	r.Get("/filter", func(w http.ResponseWriter, r *http.Request) {
-		u := websocket.NewUpgrader()
-		u.CheckOrigin = func(r *http.Request) bool { return true }
-
-		u.OnOpen(func(c *websocket.Conn) {
-			a.filterConn = c
-			a.responseChannel = make(chan data.BlockData, 1)
-		})
-
-		u.OnClose(func(c *websocket.Conn, err error) {
-			close(a.responseChannel)
-			a.filterConn = nil
-		})
-
-		u.OnMessage(func(c *websocket.Conn, t websocket.MessageType, msg []byte) {
-			var responseData data.BlockData
-			if t == websocket.BinaryMessage {
-				msgpack.Decode(msg, &responseData)
-				a.responseChannel <- responseData
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
 			}
+
+			conn.SetReadDeadline(time.Time{})
+
+			a.connections[id] = conn
 		})
+	}
 
-		conn, err := u.Upgrade(w, r, nil)
+	if a.cfg.EnableFilter {
+		r.Get("/filter", func(w http.ResponseWriter, r *http.Request) {
+			u := websocket.NewUpgrader()
+			u.CheckOrigin = func(r *http.Request) bool { return true }
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+			u.OnOpen(func(c *websocket.Conn) {
+				a.filterConn = c
+				a.responseChannel = make(chan data.BlockData, 1)
+			})
 
-		conn.SetReadDeadline(time.Time{})
-	})
+			u.OnClose(func(c *websocket.Conn, err error) {
+				close(a.responseChannel)
+				a.filterConn = nil
+			})
 
-	http.ListenAndServe("localhost:8888", r)
+			u.OnMessage(func(c *websocket.Conn, t websocket.MessageType, msg []byte) {
+				var responseData data.BlockData
+				if t == websocket.BinaryMessage {
+					msgpack.Decode(msg, &responseData)
+					a.responseChannel <- responseData
+				}
+			})
+
+			conn, err := u.Upgrade(w, r, nil)
+
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			conn.SetReadDeadline(time.Time{})
+		})
+	}
+
+	a.logger.Infof("Starting server on %s:%d", a.cfg.Host, a.cfg.Port)
+	http.ListenAndServe(fmt.Sprintf("%s:%d", a.cfg.Host, a.cfg.Port), r)
 }
 
 // Init initializes the filter processor
-func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, _ plugins.PluginConfig, logger *log.Logger) error {
+func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg plugins.PluginConfig, logger *log.Logger) error {
 	a.logger = logger
 	a.ctx = ctx
 	a.logger.Debug("Initializing websocket processor")
 
 	a.connections = map[uuid.UUID]*websocket.Conn{}
 
-	go a.Serve()
+	err := cfg.UnmarshalConfig(&a.cfg)
+
+	if err != nil {
+		return fmt.Errorf("connect failure in unmarshalConfig: %v", err)
+	}
+
+	if a.cfg.Host == "" {
+		a.cfg.Host = "localhost"
+	}
+
+	if a.cfg.Port == 0 {
+		a.cfg.Port = 8888
+	}
+
+	a.logger.Debug(a.cfg)
+
+	if !(a.cfg.EnableFilter || a.cfg.EnableRead) {
+		return fmt.Errorf("either /filter or /read endpoint must be enabled")
+	}
+
+	go a.serve()
 	return nil
 }
 
@@ -143,30 +172,34 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Debug("Encoding block data")
 	encodedInput := msgpack.Encode(input)
 
-	for {
-		if a.filterConn != nil {
-			a.filterConn.WriteMessage(websocket.BinaryMessage, encodedInput)
-			break
+	if a.cfg.EnableFilter {
+		for {
+			if a.filterConn != nil {
+				a.filterConn.WriteMessage(websocket.BinaryMessage, encodedInput)
+				break
+			}
 		}
 	}
 
-	a.logger.Debugf("Sending block data to read all %d clients (size: %dkb)", len(a.connections), len(encodedInput)/1000)
-	for id, conn := range a.connections {
-		a.logger.Debug("Sending to " + id.String())
+	if a.cfg.EnableRead {
+		a.logger.Debugf("Sending block data to read all %d clients (size: %dkb)", len(a.connections), len(encodedInput)/1000)
+		for id, conn := range a.connections {
+			a.logger.Debug("Sending to " + id.String())
 
-		go func(conn *websocket.Conn) {
-			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-			err := conn.WriteMessage(websocket.BinaryMessage, encodedInput)
+			go func(conn *websocket.Conn) {
+				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+				err := conn.WriteMessage(websocket.BinaryMessage, encodedInput)
 
-			if err != nil {
-				conn.Close()
-			}
-		}(conn)
+				if err != nil {
+					conn.Close()
+				}
+			}(conn)
+		}
 	}
 
 	var responseData data.BlockData
 
-	if a.filterConn != nil {
+	if a.cfg.EnableFilter && a.filterConn != nil {
 		for responseData = range a.responseChannel {
 			a.logger.Debug(string(responseData.BlockHeader.TimeStamp))
 			break
