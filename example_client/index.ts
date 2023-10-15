@@ -39,4 +39,4 @@ client.on('connect', (connection) => {
   });
 });
 
-client.connect('ws://localhost:8888/read');
+client.connect('ws://localhost:8888/filter');

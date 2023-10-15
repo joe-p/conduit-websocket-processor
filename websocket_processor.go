@@ -31,9 +31,11 @@ func init() {
 }
 
 type WebsocketProcessor struct {
-	logger      *log.Logger
-	ctx         context.Context
-	connections map[uuid.UUID]*websocket.Conn
+	logger          *log.Logger
+	ctx             context.Context
+	connections     map[uuid.UUID]*websocket.Conn
+	filterConn      *websocket.Conn
+	responseChannel chan data.BlockData
 }
 
 // Metadata returns metadata
@@ -79,6 +81,38 @@ func (a *WebsocketProcessor) Serve() {
 		a.connections[id] = conn
 	})
 
+	r.Get("/filter", func(w http.ResponseWriter, r *http.Request) {
+		u := websocket.NewUpgrader()
+		u.CheckOrigin = func(r *http.Request) bool { return true }
+
+		u.OnOpen(func(c *websocket.Conn) {
+			a.filterConn = c
+			a.responseChannel = make(chan data.BlockData, 1)
+		})
+
+		u.OnClose(func(c *websocket.Conn, err error) {
+			close(a.responseChannel)
+			a.filterConn = nil
+		})
+
+		u.OnMessage(func(c *websocket.Conn, t websocket.MessageType, msg []byte) {
+			var responseData data.BlockData
+			if t == websocket.BinaryMessage {
+				msgpack.Decode(msg, &responseData)
+				a.responseChannel <- responseData
+			}
+		})
+
+		conn, err := u.Upgrade(w, r, nil)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		conn.SetReadDeadline(time.Time{})
+	})
+
 	http.ListenAndServe("localhost:8888", r)
 }
 
@@ -109,6 +143,13 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Debug("Encoding block data")
 	encodedInput := msgpack.Encode(input)
 
+	for {
+		if a.filterConn != nil {
+			a.filterConn.WriteMessage(websocket.BinaryMessage, encodedInput)
+			break
+		}
+	}
+
 	a.logger.Debugf("Sending block data to read all %d clients (size: %dkb)", len(a.connections), len(encodedInput)/1000)
 	for id, conn := range a.connections {
 		a.logger.Debug("Sending to " + id.String())
@@ -123,7 +164,18 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		}(conn)
 	}
 
+	var responseData data.BlockData
+
+	if a.filterConn != nil {
+		for responseData = range a.responseChannel {
+			a.logger.Debug(string(responseData.BlockHeader.TimeStamp))
+			break
+		}
+	} else {
+		responseData = input
+	}
+
 	a.logger.Infof("done in %s", time.Since(start))
 
-	return input, nil
+	return responseData, nil
 }
