@@ -5,6 +5,7 @@ import (
 	_ "embed" // used to embed config
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -14,6 +15,7 @@ import (
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
 	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
+	"github.com/algorand/go-algorand-sdk/v2/types"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,19 +34,21 @@ func init() {
 }
 
 type ExporterConfig struct {
-	EnableFilter bool   `yaml:"enable-filter"`
-	EnableRead   bool   `yaml:"enable-read"`
-	Host         string `yaml:"host"`
-	Port         int    `yaml:"port"`
+	EnableFilterEndpoint bool   `yaml:"enable-filter-endpoint"`
+	EnableBlocksEndpoint bool   `yaml:"enable-blocks-endpoint"`
+	EnableLogsEndpoint   bool   `yaml:"enable-logs-endpoint"`
+	Host                 string `yaml:"host"`
+	Port                 int    `yaml:"port"`
 }
 
 type WebsocketProcessor struct {
-	logger          *log.Logger
-	ctx             context.Context
-	connections     map[uuid.UUID]*websocket.Conn
-	filterConn      *websocket.Conn
-	responseChannel chan data.BlockData
-	cfg             ExporterConfig
+	logger           *log.Logger
+	ctx              context.Context
+	blockConnections map[uuid.UUID]*websocket.Conn
+	logConnections   map[types.AppIndex]map[uuid.UUID]*websocket.Conn
+	filterConn       *websocket.Conn
+	responseChannel  chan data.BlockData
+	cfg              ExporterConfig
 }
 
 // Metadata returns metadata
@@ -57,37 +61,69 @@ func (a *WebsocketProcessor) Metadata() plugins.Metadata {
 	}
 }
 
+func (a *WebsocketProcessor) setupReadEndpoint(w http.ResponseWriter, r *http.Request, connections map[uuid.UUID]*websocket.Conn) (uuid.UUID, *websocket.Conn, error) {
+	u := websocket.NewUpgrader()
+	u.CheckOrigin = func(r *http.Request) bool { return true }
+
+	id := uuid.New()
+	a.logger.Debug(id.String() + " connected")
+
+	u.OnClose(func(c *websocket.Conn, err error) {
+		delete(connections, id)
+	})
+
+	conn, err := u.Upgrade(w, r, nil)
+	if err != nil {
+		return id, conn, err
+	}
+
+	conn.SetReadDeadline(time.Time{})
+
+	return id, conn, err
+}
+
 func (a *WebsocketProcessor) serve() {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
 
-	if a.cfg.EnableRead {
-		r.Get("/read", func(w http.ResponseWriter, r *http.Request) {
-			u := websocket.NewUpgrader()
-			u.CheckOrigin = func(r *http.Request) bool { return true }
+	if a.cfg.EnableBlocksEndpoint {
+		r.Get("/blocks", func(w http.ResponseWriter, r *http.Request) {
+			id, conn, err := a.setupReadEndpoint(w, r, a.blockConnections)
 
-			id := uuid.New()
-			a.logger.Debug(id.String() + " connected")
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
 
-			u.OnClose(func(c *websocket.Conn, err error) {
-				delete(a.connections, id)
-			})
+			a.blockConnections[id] = conn
+		})
+	}
 
-			conn, err := u.Upgrade(w, r, nil)
+	if a.cfg.EnableLogsEndpoint {
+		r.Get("/logs/{appID}", func(w http.ResponseWriter, r *http.Request) {
+			appID, err := strconv.ParseUint(chi.URLParam(r, "appID"), 10, 64)
 
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
 
-			conn.SetReadDeadline(time.Time{})
+			if a.logConnections[appID] == nil {
+				a.logConnections[appID] = map[uuid.UUID]*websocket.Conn{}
+			}
 
-			a.connections[id] = conn
+			id, conn, err := a.setupReadEndpoint(w, r, a.logConnections[appID])
+
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+			}
+
+			a.logConnections[appID][id] = conn
+
 		})
 	}
 
-	if a.cfg.EnableFilter {
+	if a.cfg.EnableFilterEndpoint {
 		r.Get("/filter", func(w http.ResponseWriter, r *http.Request) {
 			u := websocket.NewUpgrader()
 			u.CheckOrigin = func(r *http.Request) bool { return true }
@@ -131,7 +167,8 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 	a.ctx = ctx
 	a.logger.Debug("Initializing websocket processor")
 
-	a.connections = map[uuid.UUID]*websocket.Conn{}
+	a.blockConnections = map[uuid.UUID]*websocket.Conn{}
+	a.logConnections = map[types.AppIndex]map[uuid.UUID]*websocket.Conn{}
 
 	err := cfg.UnmarshalConfig(&a.cfg)
 
@@ -149,8 +186,8 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 
 	a.logger.Debug(a.cfg)
 
-	if !(a.cfg.EnableFilter || a.cfg.EnableRead) {
-		return fmt.Errorf("either /filter or /read endpoint must be enabled")
+	if !(a.cfg.EnableFilterEndpoint || a.cfg.EnableBlocksEndpoint || a.cfg.EnableLogsEndpoint) {
+		return fmt.Errorf("at least of the endpoints must be enabled")
 	}
 
 	go a.serve()
@@ -158,11 +195,34 @@ func (a *WebsocketProcessor) Init(ctx context.Context, _ data.InitProvider, cfg 
 }
 
 func (a *WebsocketProcessor) Close() error {
-	for _, conn := range a.connections {
+	for _, conn := range a.blockConnections {
 		conn.Close()
 	}
 
+	for _, appID := range a.logConnections {
+		for _, conn := range appID {
+			conn.Close()
+		}
+	}
+
 	return nil
+}
+
+func getInnerLogs(logs map[types.AppIndex][]string, itxns []types.SignedTxnWithAD) {
+	for _, itxn := range itxns {
+		if len(itxn.EvalDelta.Logs) > 0 {
+			appID := itxn.Txn.ApplicationID
+			if logs[appID] == nil {
+				logs[appID] = []string{}
+			}
+
+			for _, log := range itxn.EvalDelta.Logs {
+				logs[appID] = append(logs[appID], log)
+			}
+		}
+
+		getInnerLogs(logs, itxn.EvalDelta.InnerTxns)
+	}
 }
 
 // Process processes the input data
@@ -172,7 +232,7 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	a.logger.Debug("Encoding block data")
 	encodedInput := msgpack.Encode(input)
 
-	if a.cfg.EnableFilter {
+	if a.cfg.EnableFilterEndpoint {
 		for {
 			if a.filterConn != nil {
 				a.filterConn.WriteMessage(websocket.BinaryMessage, encodedInput)
@@ -181,11 +241,9 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		}
 	}
 
-	if a.cfg.EnableRead {
-		a.logger.Debugf("Sending block data to read all %d clients (size: %dkb)", len(a.connections), len(encodedInput)/1000)
-		for id, conn := range a.connections {
-			a.logger.Debug("Sending to " + id.String())
-
+	if a.cfg.EnableBlocksEndpoint {
+		a.logger.Debugf("Sending block data to %d clients (size: %dkb)", len(a.blockConnections), len(encodedInput)/1000)
+		for _, conn := range a.blockConnections {
 			go func(conn *websocket.Conn) {
 				conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				err := conn.WriteMessage(websocket.BinaryMessage, encodedInput)
@@ -197,11 +255,42 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 		}
 	}
 
+	if a.cfg.EnableLogsEndpoint {
+		logs := map[types.AppIndex][]string{}
+
+		for _, p := range input.Payset {
+			if len(p.EvalDelta.Logs) > 0 {
+				appID := p.Txn.ApplicationID
+				if logs[appID] == nil {
+					logs[appID] = []string{}
+				}
+
+				for _, log := range p.EvalDelta.Logs {
+					logs[appID] = append(logs[appID], log)
+				}
+			}
+
+			getInnerLogs(logs, p.EvalDelta.InnerTxns)
+		}
+
+		for appID, conns := range a.logConnections {
+			for _, conn := range conns {
+				go func(conn *websocket.Conn) {
+					conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+					err := conn.WriteMessage(websocket.BinaryMessage, msgpack.Encode(logs[appID]))
+
+					if err != nil {
+						conn.Close()
+					}
+				}(conn)
+			}
+		}
+	}
+
 	var responseData data.BlockData
 
-	if a.cfg.EnableFilter && a.filterConn != nil {
+	if a.cfg.EnableFilterEndpoint && a.filterConn != nil {
 		for responseData = range a.responseChannel {
-			a.logger.Debug(string(responseData.BlockHeader.TimeStamp))
 			break
 		}
 	} else {
