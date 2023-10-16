@@ -32,10 +32,10 @@ func init() {
 }
 
 type ExporterConfig struct {
-	EnableFilter bool   `yaml: enable-filter`
-	EnableRead   bool   `yaml: enable-read`
-	Host         string `yaml: host`
-	Port         int    `yaml: port`
+	EnableFilter bool   `yaml:"enable-filter"`
+	EnableRead   bool   `yaml:"enable-read"`
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
 }
 
 type WebsocketProcessor struct {
