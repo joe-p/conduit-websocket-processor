@@ -101,12 +101,14 @@ func (a *WebsocketProcessor) serve() {
 
 	if a.cfg.EnableLogsEndpoint {
 		r.Get("/logs/{appID}", func(w http.ResponseWriter, r *http.Request) {
-			appID, err := strconv.ParseUint(chi.URLParam(r, "appID"), 10, 64)
+			appUint, err := strconv.ParseUint(chi.URLParam(r, "appID"), 10, 64)
 
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
+
+			appID := types.AppIndex(appUint)
 
 			if a.logConnections[appID] == nil {
 				a.logConnections[appID] = map[uuid.UUID]*websocket.Conn{}
