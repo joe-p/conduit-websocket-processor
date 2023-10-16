@@ -14,6 +14,7 @@ import (
 	"github.com/algorand/conduit/conduit/plugins"
 	"github.com/algorand/conduit/conduit/plugins/processors"
 
+	"github.com/algorand/go-algorand-sdk/v2/crypto"
 	"github.com/algorand/go-algorand-sdk/v2/encoding/msgpack"
 	"github.com/algorand/go-algorand-sdk/v2/types"
 
@@ -49,6 +50,11 @@ type WebsocketProcessor struct {
 	filterConn       *websocket.Conn
 	responseChannel  chan data.BlockData
 	cfg              ExporterConfig
+}
+
+type TxnLog struct {
+	TxID string `codec:"txid"`
+	Log  string `codec:"log"`
 }
 
 // Metadata returns metadata
@@ -210,20 +216,24 @@ func (a *WebsocketProcessor) Close() error {
 	return nil
 }
 
-func getInnerLogs(logs map[types.AppIndex][]string, itxns []types.SignedTxnWithAD) {
+func (a *WebsocketProcessor) getInnerLogs(logs map[types.AppIndex][]TxnLog, itxns []types.SignedTxnWithAD) {
 	for _, itxn := range itxns {
 		if len(itxn.EvalDelta.Logs) > 0 {
 			appID := itxn.Txn.ApplicationID
-			if logs[appID] == nil {
-				logs[appID] = []string{}
+			if a.logConnections[appID] != nil {
+				if logs[appID] == nil {
+					logs[appID] = []TxnLog{}
+				}
+
+				for _, log := range itxn.EvalDelta.Logs {
+					txLog := TxnLog{TxID: crypto.GetTxID(itxn.Txn), Log: log}
+					logs[appID] = append(logs[appID], txLog)
+				}
 			}
 
-			for _, log := range itxn.EvalDelta.Logs {
-				logs[appID] = append(logs[appID], log)
-			}
 		}
 
-		getInnerLogs(logs, itxn.EvalDelta.InnerTxns)
+		a.getInnerLogs(logs, itxn.EvalDelta.InnerTxns)
 	}
 }
 
@@ -258,24 +268,29 @@ func (a *WebsocketProcessor) Process(input data.BlockData) (data.BlockData, erro
 	}
 
 	if a.cfg.EnableLogsEndpoint {
-		logs := map[types.AppIndex][]string{}
+		logs := map[types.AppIndex][]TxnLog{}
 
 		for _, p := range input.Payset {
 			if len(p.EvalDelta.Logs) > 0 {
 				appID := p.Txn.ApplicationID
-				if logs[appID] == nil {
-					logs[appID] = []string{}
-				}
+				if a.logConnections[appID] != nil {
 
-				for _, log := range p.EvalDelta.Logs {
-					logs[appID] = append(logs[appID], log)
+					if logs[appID] == nil {
+						logs[appID] = []TxnLog{}
+					}
+
+					for _, log := range p.EvalDelta.Logs {
+						txLog := TxnLog{TxID: crypto.GetTxID(p.Txn), Log: log}
+						logs[appID] = append(logs[appID], txLog)
+					}
 				}
 			}
 
-			getInnerLogs(logs, p.EvalDelta.InnerTxns)
+			a.getInnerLogs(logs, p.EvalDelta.InnerTxns)
 		}
 
-		for appID, conns := range a.logConnections {
+		for a, conns := range a.logConnections {
+			appID := a
 			for _, conn := range conns {
 				go func(conn *websocket.Conn) {
 					conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
